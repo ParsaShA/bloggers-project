@@ -1,59 +1,81 @@
-# تیم تولید محتوای وبلاگ با CrewAI + FastAPI
+Blog Content Crew
 
-یک Crew شامل سه Agent (پژوهشگر، نویسنده، ویراستار) که با `Process.sequential` اجرا می‌شود و از طریق یک API با FastAPI در دسترس است.
+A multi-agent content pipeline built with CrewAI and exposed as a REST API via FastAPI. Given a topic, three collaborating agents research it, draft a short blog post, and edit the result.
 
-## ساختار
+Architecture
+Topic ──► Researcher ──► Writer ──► Editor ──► Final post
+          (web search)   (context)  (context)
+Agent	Responsibility	Tools
+Researcher	Gathers five key findings on the topic, each with a cited source	SerperDevTool (falls back to WebsiteSearchTool)
+Writer	Drafts a 300–400 word post (title, introduction, body, conclusion) from the researcher's output	None; relies on task context only
+Editor (optional)	Reviews tone, grammar and structure and returns the final version	None
 
-```
-blog-crew/
+Agents run through Process.sequential with verbose=True, so each agent's reasoning is visible in the server logs. The editor can be disabled per request.
+
+Project Structure
+.
 ├── app/
 │   ├── __init__.py
-│   ├── crew.py      # Agent، Task، Crew و Process
-│   └── main.py      # endpointهای FastAPI
+│   ├── crew.py          # Agents, tasks, crew and process definition
+│   └── main.py          # FastAPI application and endpoints
+├── .env.example         # Environment variable template
+├── .gitignore
 ├── requirements.txt
-└── .env.example
-```
-
-## نصب و اجرا
-
-```bash
-python -m venv .venv && source .venv/bin/activate
+└── README.md
+Getting Started
+Prerequisites
+Python 3.10+
+An OpenAI API key (CrewAI's default LLM provider)
+(Optional) A free Serper API key for web search
+Installation
+bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env      # کلیدها را داخل .env قرار دهید
+cp .env.example .env             # then fill in your keys
+Configuration
+Variable	Required	Description
+OPENAI_API_KEY	Yes	API key for the LLM
+MODEL	No	Overrides the default model
+SERPER_API_KEY	No	Enables SerperDevTool; otherwise WebsiteSearchTool is used
+Running the Server
+bash
 uvicorn app.main:app --reload
-```
 
-مستندات تعاملی: http://127.0.0.1:8000/docs
+Interactive API docs are available at http://127.0.0.1:8000/docs.
 
-## Endpointها
+API Reference
+Method	Endpoint	Description
+GET	/health	Liveness check
+POST	/generate	Generates a post for a single topic
+POST	/compare	Runs the crew on 2–5 topics and returns posts with word counts
+POST	/compare-editor	Produces the same topic with and without the editor for side-by-side comparison
+Examples
 
-| مسیر | توضیح |
-|---|---|
-| `GET /health` | بررسی سلامت سرویس |
-| `POST /generate` | تولید پست برای یک موضوع (`use_editor` اختیاری) |
-| `POST /compare` | اجرا برای چند موضوع (حداقل ۲) و مقایسه‌ی تعداد کلمات و متن‌ها |
-| `POST /compare-editor` | خروجی با ویراستار در برابر بدون ویراستار برای یک موضوع |
+Generate a post:
 
-نمونه:
-
-```bash
+bash
 curl -X POST http://127.0.0.1:8000/generate \
   -H "Content-Type: application/json" \
-  -d '{"topic": "هوش مصنوعی در بورس تهران"}'
+  -d '{"topic": "هوش مصنوعی در بورس تهران", "use_editor": true}'
 
+Compare multiple topics:
+
+bash
 curl -X POST http://127.0.0.1:8000/compare \
   -H "Content-Type: application/json" \
-  -d '{"topics": ["هوش مصنوعی در بورس تهران", "هوش مصنوعی در آموزش"]}'
-```
+  -d '{"topics": ["topic1", "topic2"]}'
 
-## تطبیق با الزامات تمرین
+Compare output with and without the editor:
 
-- دو Agent اصلی (Researcher و Writer) + Editor اختیاری (امتیاز اضافه)
-- `Process.sequential` و `verbose=True` (مراحل استدلال در لاگ ترمینال دیده می‌شود)
-- Writer بدون ابزار است و فقط از `context=[research_task]` استفاده می‌کند
-- اجرا با دو موضوع متفاوت از طریق `/compare`
-- ابزار جستجو: `SerperDevTool` (با `SERPER_API_KEY`) و در غیر این صورت `WebsiteSearchTool`
+bash
+curl -X POST http://127.0.0.1:8000/compare-editor \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "هوش مصنوعی در بورس تهران"}'
+Design Notes
+Blocking execution. crew.kickoff() is synchronous, so each run is dispatched with asyncio.to_thread. This keeps the event loop responsive and allows /compare to run topics concurrently.
+Crew per request. A fresh crew is built for every call, which avoids shared state between concurrent requests.
+Search tool fallback. The tool is selected at runtime from the environment, so the service starts without a Serper key.
+Reflection: The Role of the Editor Agent
 
-## سوال فکری پایانی (پاسخ پیشنهادی؛ پس از اجرای `/compare-editor` با مشاهده‌ی خودتان تطبیق دهید)
-
-با حذف ویراستار، متن نهایی معمولاً از نظر محتوا شبیه است، اما در جزئیات کیفیت افت می‌کند: ناهماهنگی لحن، خطاهای نگارشی و املایی، جمله‌های طولانی یا تکراری، و گاهی خروج از بازه‌ی ۳۰۰ تا ۴۰۰ کلمه. دلیلش این است که نویسنده هم‌زمان باید محتوا را بسازد و کیفیت زبانی را کنترل کند، در حالی که ویراستار با نقش و هدف جداگانه، فقط روی بازبینی تمرکز می‌کند و یک «دور دوم» مستقل روی متن می‌اندازد؛ تقسیم وظیفه و بازبینی چندمرحله‌ای همان اصل اصلی کار تیمی در CrewAI است.
+Removing the editor typically leaves the content intact but lowers polish: inconsistent tone, minor grammar and spelling errors, repetitive or overlong sentences, and occasional drift outside the 300–400 word target. The writer must produce the content and police its linguistic quality in the same pass, whereas a dedicated editor has a single, distinct objective and acts as an independent second review. Separating generation from review is the core principle of multi-agent design in CrewAI, and it consistently improves output reliability.
