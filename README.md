@@ -1,110 +1,97 @@
 # Blog Content Crew
 
-A multi-agent content pipeline built with [CrewAI](https://github.com/crewAIInc/crewAI) and exposed as a REST API via [FastAPI](https://fastapi.tiangolo.com/). Given a topic, three collaborating agents research it, draft a short blog post, and edit the result.
+یک پایپلاین چندعاملی با [CrewAI](https://github.com/crewAIInc/crewAI) که با [FastAPI](https://fastapi.tiangolo.com/) به صورت REST API در دسترس است. با دادن یک موضوع، سه عامل به ترتیب تحقیق می‌کنند، پست می‌نویسند و ویرایش می‌کنند.
 
-## Architecture
+## معماری
 
 ```
-Topic ──► Researcher ──► Writer ──► Editor ──► Final post
-          (web search)   (context)  (context)
+Topic ──► Researcher ──► Writer ──► Editor (اختیاری) ──► Final post
+          (ابزار جست‌وجو) (context)   (context)
 ```
 
-| Agent | Responsibility | Tools |
+| عامل | مسئولیت | ابزار |
 |---|---|---|
-| **Researcher** | Gathers five key findings on the topic, each with a cited source | `SerperDevTool` (falls back to `WebsiteSearchTool`) |
-| **Writer** | Drafts a 300–400 word post (title, introduction, body, conclusion) from the researcher's output | None; relies on task context only |
-| **Editor** *(optional)* | Reviews tone, grammar and structure and returns the final version | None |
+| **Researcher** | پیدا کردن ۵ نکته‌ی کلیدی با ذکر منبع | `SerperDevTool` (در صورت نبود کلید: `WebsiteSearchTool`) |
+| **Writer** | نوشتن پست ۳۰۰ تا ۴۰۰ کلمه‌ای از روی خروجی پژوهشگر | ندارد |
+| **Editor** *(اختیاری)* | بازبینی لحن، گرامر و ساختار | ندارد |
 
-Agents run through `Process.sequential` with `verbose=True`, so each agent's reasoning is visible in the server logs. The editor can be disabled per request.
+عامل‌ها با `Process.sequential` اجرا می‌شوند و `verbose=True` دارند تا استدلال هر عامل در لاگ دیده شود. ویراستار برای هر درخواست قابل غیرفعال‌سازی است.
 
-## Project Structure
+## ساختار پروژه
 
 ```
 .
 ├── app/
 │   ├── __init__.py
-│   ├── crew.py          # Agents, tasks, crew and process definition
-│   └── main.py          # FastAPI application and endpoints
-├── .env.example         # Environment variable template
+│   ├── crew.py          # تعریف عامل‌ها، تسک‌ها و Crew
+│   └── main.py          # اپلیکیشن FastAPI و endpointها
+├── .env.example
 ├── .gitignore
 ├── requirements.txt
 └── README.md
 ```
 
-## Getting Started
+## شروع کار
 
-### Prerequisites
-
+### پیش‌نیازها
 - Python 3.10+
-- An OpenAI API key (CrewAI's default LLM provider)
-- *(Optional)* A free [Serper](https://serper.dev) API key for web search
+- کلید OpenAI (ارائه‌دهنده‌ی پیش‌فرض CrewAI)
+- *(اختیاری)* کلید [Serper](https://serper.dev) برای جست‌وجوی واقعی وب
 
-### Installation
-
+### نصب
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env             # then fill in your keys
+cp .env.example .env             # کلیدها را وارد کنید
 ```
 
-### Configuration
+### پیکربندی
 
-| Variable | Required | Description |
+| متغیر | اجباری | توضیح |
 |---|---|---|
-| `OPENAI_API_KEY` | Yes | API key for the LLM |
-| `MODEL` | No | Overrides the default model |
-| `SERPER_API_KEY` | No | Enables `SerperDevTool`; otherwise `WebsiteSearchTool` is used |
+| `OPENAI_API_KEY` | بله | کلید مدل زبانی |
+| `MODEL` | خیر | نام مدل؛ اگر خالی باشد پیش‌فرض CrewAI استفاده می‌شود |
+| `SERPER_API_KEY` | خیر | فعال‌سازی جست‌وجوی وب با `SerperDevTool` |
 
-### Running the Server
+> **محدودیت:** بدون `SERPER_API_KEY` از `WebsiteSearchTool` استفاده می‌شود. این ابزار جست‌وجوی وب نیست و روی یک وب‌سایت مشخص کار می‌کند، پس تحقیق محدودتر است و هشدار در لاگ ثبت می‌شود.
 
+### اجرا
 ```bash
 uvicorn app.main:app --reload
 ```
+مستندات تعاملی: <http://127.0.0.1:8000/docs>
 
-Interactive API docs are available at <http://127.0.0.1:8000/docs>.
+## API
 
-## API Reference
-
-| Method | Endpoint | Description |
+| متد | مسیر | توضیح |
 |---|---|---|
-| `GET` | `/health` | Liveness check |
-| `POST` | `/generate` | Generates a post for a single topic |
-| `POST` | `/compare` | Runs the crew on 2–5 topics and returns posts with word counts |
-| `POST` | `/compare-editor` | Produces the same topic with and without the editor for side-by-side comparison |
+| `GET` | `/health` | بررسی سلامت سرویس |
+| `POST` | `/generate` | تولید پست برای یک موضوع |
+| `POST` | `/compare` | اجرای Crew برای ۲ تا ۵ موضوع و گزارش تعداد کلمات |
+| `POST` | `/compare-editor` | همان موضوع با و بدون ویراستار |
 
-### Examples
-
-Generate a post:
-
+### نمونه
 ```bash
 curl -X POST http://127.0.0.1:8000/generate \
   -H "Content-Type: application/json" \
   -d '{"topic": "هوش مصنوعی در بورس تهران", "use_editor": true}'
 ```
 
-Compare multiple topics:
+## نکات طراحی
 
-```bash
-curl -X POST http://127.0.0.1:8000/compare \
-  -H "Content-Type: application/json" \
-  -d '{"topics": ["هوش مصنوعی در بورس تهران", "هوش مصنوعی در آموزش"]}'
-```
+- **اجرای همگام:** `crew.kickoff()` همگام است، پس با `asyncio.to_thread` اجرا می‌شود تا event loop بسته نشود و `/compare` بتواند موضوعات را همزمان اجرا کند.
+- **Crew برای هر درخواست:** هر درخواست Crew تازه‌ای می‌سازد تا state بین درخواست‌های همزمان مشترک نباشد.
+- **انتخاب ابزار در زمان اجرا:** سرویس بدون کلید Serper هم بالا می‌آید.
+- **شمارش کلمات** با `split()` انجام می‌شود و برای فارسی تقریبی است.
 
-Compare output with and without the editor:
+## محدودیت‌های شناخته‌شده
 
-```bash
-curl -X POST http://127.0.0.1:8000/compare-editor \
-  -H "Content-Type: application/json" \
-  -d '{"topic": "هوش مصنوعی در بورس تهران"}'
-```
+- منابع توسط مدل ذکر می‌شوند و اعتبارسنجی نمی‌شوند؛ ممکن است منبع نادرست یا ساختگی باشد.
+- خطاها به صورت یکجا `500` برمی‌گردند و timeout جداگانه ندارند.
+- تست خودکار وجود ندارد.
+- `/compare-editor` دو بار اجرای کامل Crew است و هزینه‌ی API دو برابر دارد.
 
-## Design Notes
+## تأمل: نقش ویراستار
 
-- **Blocking execution.** `crew.kickoff()` is synchronous, so each run is dispatched with `asyncio.to_thread`. This keeps the event loop responsive and allows `/compare` to run topics concurrently.
-- **Crew per request.** A fresh crew is built for every call, which avoids shared state between concurrent requests.
-- **Search tool fallback.** The tool is selected at runtime from the environment, so the service starts without a Serper key.
-
-## Reflection: The Role of the Editor Agent
-
-Removing the editor typically leaves the content intact but lowers polish: inconsistent tone, minor grammar and spelling errors, repetitive or overlong sentences, and occasional drift outside the 300–400 word target. The writer must produce the content and police its linguistic quality in the same pass, whereas a dedicated editor has a single, distinct objective and acts as an independent second review. Separating generation from review is the core principle of multi-agent design in CrewAI, and it consistently improves output reliability.
+بدون ویراستار محتوا معمولاً سر جای خود است، اما صیقل کمتری دارد: لحن ناهمگون، خطاهای جزئی گرامری و املایی، جمله‌های تکراری یا طولانی، و گاهی خروج از بازه‌ی طول. نویسنده هم باید محتوا را بنویسد و هم کیفیت زبانی را رعایت کند، در حالی که ویراستار هدف مشخص و جدا دارد و مثل یک بازبینی مستقل دوم عمل می‌کند. جداکردن تولید از بازبینی یکی از اصول اصلی طراحی چندعاملی است.
